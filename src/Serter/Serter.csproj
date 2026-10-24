@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Lets the project build on non-Windows CI/dev machines; it only runs on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>Serter</AssemblyName>
+    <RootNamespace>Serter</RootNamespace>
+    <Product>Serter – Serato Mix Assistant</Product>
+    <Version>1.0.0</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Serter.Core\Serter.Core.csproj" />
+  </ItemGroup>
+
+</Project>

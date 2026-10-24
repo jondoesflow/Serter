@@ -1,0 +1,194 @@
+<Window x:Class="Serter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Serter.ViewModels"
+        xmlns:models="clr-namespace:Serter.Core.Models;assembly=Serter.Core"
+        Title="Serter – Mix Assistant"
+        Width="460" Height="720" MinWidth="380" MinHeight="420"
+        Background="{StaticResource Bg}"
+        Topmost="{Binding Settings.AlwaysOnTop, Mode=OneWay}"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        d:DataContext="{d:DesignInstance vm:MainViewModel}"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d">
+  <Window.InputBindings>
+    <KeyBinding Key="Tab" Modifiers="Control" Command="{Binding SwitchDeckCommand}" />
+    <KeyBinding Key="F5" Command="{Binding RefreshCommand}" />
+  </Window.InputBindings>
+
+  <Window.Resources>
+    <!-- Colour a label by its Good / Ok / Bad / Unknown quality tag -->
+    <Style x:Key="QualityText" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{StaticResource Unknown}" />
+      <Style.Triggers>
+        <Trigger Property="Tag" Value="Good"><Setter Property="Foreground" Value="{StaticResource Good}" /></Trigger>
+        <Trigger Property="Tag" Value="Ok"><Setter Property="Foreground" Value="{StaticResource Ok}" /></Trigger>
+        <Trigger Property="Tag" Value="Bad"><Setter Property="Foreground" Value="{StaticResource Bad}" /></Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <DataTemplate x:Key="SuggestionTemplate" DataType="{x:Type vm:RecommendationViewModel}">
+      <Border Background="{StaticResource Surface}" CornerRadius="8" Margin="0,0,0,6" Padding="8,7">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="72" />
+            <ColumnDefinition Width="92" />
+          </Grid.ColumnDefinitions>
+
+          <Button Grid.Column="0" Style="{StaticResource FlatButton}" Margin="0,0,10,0" Padding="8,6"
+                  VerticalAlignment="Center" ToolTip="Copy artist + title for Serato search"
+                  Command="{Binding DataContext.CopyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                  CommandParameter="{Binding}">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" VerticalAlignment="Center" />
+              <TextBlock Text="Copy" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
+            <TextBlock Text="{Binding Artist}" Foreground="{StaticResource TextDim}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding Artist}" />
+            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+              <Border Style="{StaticResource Chip}">
+                <TextBlock Text="{Binding Genre}" FontSize="10.5" Foreground="{StaticResource TextDim}" />
+              </Border>
+              <TextBlock Text="{Binding Source}" FontSize="10.5" Foreground="{StaticResource Unknown}" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+
+          <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="6,0,0,0">
+            <TextBlock HorizontalAlignment="Right" FontSize="15" FontWeight="SemiBold">
+              <Run Text="{Binding Bpm, Mode=OneWay}" /><Run Text=" bpm" FontSize="10" Foreground="{StaticResource TextDim}" />
+            </TextBlock>
+            <TextBlock HorizontalAlignment="Right" Text="{Binding BpmLabel}" Tag="{Binding BpmQuality}" Style="{StaticResource QualityText}" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="6,0,0,0">
+            <TextBlock HorizontalAlignment="Right" Text="{Binding Key}" FontSize="14" FontWeight="SemiBold" />
+            <TextBlock HorizontalAlignment="Right" Text="{Binding KeyLabel}" Tag="{Binding KeyQuality}" Style="{StaticResource QualityText}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid Margin="12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- Header: deck switch + controls -->
+    <DockPanel Grid.Row="0" LastChildFill="False">
+      <Border DockPanel.Dock="Left" Background="{StaticResource Surface}" CornerRadius="8" Padding="3">
+        <StackPanel Orientation="Horizontal">
+          <RadioButton Style="{StaticResource DeckToggle}" Tag="{StaticResource DeckA}" GroupName="deck"
+                       IsChecked="{Binding IsDeckA}" Content="DECK A" ToolTip="Show suggestions for deck A (Ctrl+Tab to switch)" />
+          <RadioButton Style="{StaticResource DeckToggle}" Tag="{StaticResource DeckB}" GroupName="deck"
+                       IsChecked="{Binding IsDeckB}" Content="DECK B" ToolTip="Show suggestions for deck B (Ctrl+Tab to switch)" />
+        </StackPanel>
+      </Border>
+
+      <Button DockPanel.Dock="Right" Style="{StaticResource FlatButton}" Click="OnSettings" ToolTip="Settings" Padding="8,6">
+        <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14" />
+      </Button>
+      <Button DockPanel.Dock="Right" Style="{StaticResource FlatButton}" Command="{Binding RefreshCommand}" ToolTip="Refresh suggestions (F5)" Padding="8,6" Margin="0,0,6,0">
+        <TextBlock Text="&#xE72C;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14" />
+      </Button>
+    </DockPanel>
+
+    <CheckBox Grid.Row="1" Margin="2,8,0,0" IsChecked="{Binding FollowLatestDeck}" FontSize="12"
+              Content="Auto-switch to the deck I just loaded" Foreground="{StaticResource TextDim}" />
+
+    <!-- Now loaded on the selected deck -->
+    <Border Grid.Row="2" Margin="0,10,0,10" CornerRadius="10" Padding="12,10" Background="{StaticResource Surface}"
+            BorderThickness="0,0,0,3">
+      <Border.Style>
+        <Style TargetType="Border">
+          <Setter Property="BorderBrush" Value="{StaticResource DeckA}" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding IsDeckB}" Value="True">
+              <Setter Property="BorderBrush" Value="{StaticResource DeckB}" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </Border.Style>
+      <StackPanel DataContext="{Binding Current}">
+        <TextBlock FontSize="10.5" Foreground="{StaticResource TextDim}" FontWeight="SemiBold">
+          <Run Text="LOADED ON DECK" /> <Run Text="{Binding Deck, Mode=OneWay}" />
+        </TextBlock>
+        <StackPanel Visibility="{Binding HasTrack, Converter={StaticResource BoolToVis}}">
+          <TextBlock Text="{Binding Loaded.Title}" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+          <TextBlock Text="{Binding Loaded.Artist}" FontSize="13" Foreground="{StaticResource TextDim}" TextTrimming="CharacterEllipsis" />
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <Border Style="{StaticResource Chip}"><TextBlock FontSize="12"><Run Text="{Binding Loaded.Bpm, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" BPM" Foreground="{StaticResource TextDim}" /></TextBlock></Border>
+            <Border Style="{StaticResource Chip}"><TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Loaded.Key}" /></Border>
+            <Border Style="{StaticResource Chip}"><TextBlock FontSize="12" Text="{Binding Loaded.Genre}" Foreground="{StaticResource TextDim}" /></Border>
+            <Button Style="{StaticResource FlatButton}" Padding="6,1" FontSize="11"
+                    Command="{Binding DataContext.CopyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding Loaded}" Content="Copy" ToolTip="Copy artist + title" />
+          </StackPanel>
+        </StackPanel>
+        <TextBlock Text="Nothing loaded yet" FontSize="16" Foreground="{StaticResource TextDim}" Margin="0,4,0,0"
+                   Visibility="{Binding HasTrack, Converter={StaticResource InverseBoolToVis}}" />
+      </StackPanel>
+    </Border>
+
+    <!-- Suggestions -->
+    <Grid Grid.Row="3" DataContext="{Binding Current}">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <DockPanel Margin="2,0,2,6">
+        <ProgressBar DockPanel.Dock="Right" Width="60" Height="4" IsIndeterminate="True" VerticalAlignment="Center"
+                     Foreground="{StaticResource DeckA}" Background="Transparent" BorderThickness="0"
+                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+        <TextBlock Text="{Binding Message}" FontSize="11.5" Foreground="{StaticResource TextDim}" TextWrapping="Wrap" />
+      </DockPanel>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Suggestions}" ItemTemplate="{StaticResource SuggestionTemplate}" />
+      </ScrollViewer>
+    </Grid>
+
+    <!-- Footer: manual search, copy toast, status -->
+    <StackPanel Grid.Row="4" Margin="0,8,0,0">
+      <Grid>
+        <TextBox x:Name="SearchBox" KeyDown="OnSearchKeyDown" FontSize="12"
+                 ToolTip="Type Artist - Title and press Enter to get suggestions without Serato" />
+        <TextBlock Text="Try a track: Artist - Title  ⏎" Foreground="{StaticResource Unknown}" FontSize="12"
+                   Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </Grid>
+      <Border Background="{StaticResource Good}" CornerRadius="6" Padding="8,4" Margin="0,6,0,0"
+              Visibility="{Binding Toast, Converter={StaticResource EmptyToCollapsed}}">
+        <TextBlock Text="{Binding Toast}" Foreground="#FF0E1A12" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
+      </Border>
+      <TextBlock Margin="2,6,0,0" FontSize="10.5" Foreground="{StaticResource Unknown}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}">
+        <Run Text="{Binding Status, Mode=OneWay}" />
+      </TextBlock>
+      <TextBlock Margin="2,2,0,0" FontSize="10.5" Foreground="{StaticResource Unknown}">
+        <Run Text="Data:" /> <Run Text="{Binding SourcesSummary, Mode=OneWay}" />
+        <Run Text=" · BPM/key data from" />
+        <Hyperlink NavigateUri="https://getsongbpm.com" RequestNavigate="OnLink" Foreground="{StaticResource TextDim}">GetSongBPM</Hyperlink>
+      </TextBlock>
+    </StackPanel>
+  </Grid>
+</Window>

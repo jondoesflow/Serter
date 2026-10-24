@@ -1,0 +1,77 @@
+<Window x:Class="Serter.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Serter settings" Width="520" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource Bg}" FontFamily="Segoe UI Variable Text, Segoe UI">
+  <Window.Resources>
+    <Style x:Key="Label" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,12,0,4" />
+      <Setter Property="Foreground" Value="{StaticResource Text}" />
+    </Style>
+    <Style x:Key="Help" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{StaticResource TextDim}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,3,0,0" />
+    </Style>
+  </Window.Resources>
+  <StackPanel Margin="18">
+    <TextBlock Text="GetSongBPM API key (free – needed for BPM &amp; key of suggestions)" Style="{StaticResource Label}" Margin="0,0,0,4" />
+    <TextBox x:Name="GetSongBpmKey" />
+    <TextBlock Style="{StaticResource Help}">
+      Get one at <Hyperlink NavigateUri="https://getsongbpm.com/api" RequestNavigate="OnLink">getsongbpm.com/api</Hyperlink>.
+      They ask for a web page that links back to them – you can use this app's GitHub page (see README).
+    </TextBlock>
+
+    <TextBlock Text="Last.fm API key (optional – better 'similar track' suggestions + genres)" Style="{StaticResource Label}" />
+    <TextBox x:Name="LastFmKey" />
+    <TextBlock Style="{StaticResource Help}">
+      Free from <Hyperlink NavigateUri="https://www.last.fm/api/account/create" RequestNavigate="OnLink">last.fm/api/account/create</Hyperlink> (any app name works).
+    </TextBlock>
+
+    <TextBlock Text="Copy button format" Style="{StaticResource Label}" />
+    <ComboBox x:Name="CopyFormat" IsEditable="True">
+      <ComboBoxItem Content="{}{artist} {title}" />
+      <ComboBoxItem Content="{}{artist} - {title}" />
+      <ComboBoxItem Content="{}{title} {artist}" />
+      <ComboBoxItem Content="{}{title}" />
+    </ComboBox>
+    <TextBlock Style="{StaticResource Help}" Text="{}{artist} and {title} are replaced. A space works best in Serato's TIDAL search." />
+
+    <Grid Margin="0,4,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="16" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <StackPanel>
+        <TextBlock Text="BPM range (± %)" Style="{StaticResource Label}" />
+        <TextBox x:Name="BpmTolerance" />
+      </StackPanel>
+      <StackPanel Grid.Column="2">
+        <TextBlock Text="Number of suggestions" Style="{StaticResource Label}" />
+        <TextBox x:Name="MaxResults" />
+      </StackPanel>
+    </Grid>
+
+    <StackPanel Margin="0,14,0,0">
+      <CheckBox x:Name="AlwaysOnTop" Content="Keep window on top of Serato" Margin="0,0,0,6" />
+      <CheckBox x:Name="HideClashes" Content="Hide suggestions whose key clashes" Margin="0,0,0,6" />
+      <CheckBox x:Name="HidePlayed" Content="Hide tracks already played this session" />
+    </StackPanel>
+
+    <TextBlock Text="Serato folder (leave blank to auto-detect)" Style="{StaticResource Label}" />
+    <TextBox x:Name="SeratoPath" />
+    <TextBlock Style="{StaticResource Help}">
+      Serato DJ 4: %APPDATA%\Serato\Library  ·  Serato DJ Pro 3 and older: Music\_Serato_
+    </TextBlock>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+      <Button Content="Cancel" Style="{StaticResource FlatButton}" IsCancel="True" Width="90" Margin="0,0,8,0" />
+      <Button Content="Save" Style="{StaticResource FlatButton}" IsDefault="True" Width="90" Click="OnSave"
+              Background="{StaticResource DeckA}" Foreground="#FF101114" />
+    </StackPanel>
+  </StackPanel>
+</Window>
