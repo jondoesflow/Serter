@@ -186,8 +186,10 @@
       </TextBlock>
       <TextBlock Margin="2,2,0,0" FontSize="10.5" Foreground="{StaticResource Unknown}">
         <Run Text="Data:" /> <Run Text="{Binding SourcesSummary, Mode=OneWay}" />
-        <Run Text=" · BPM/key data from" />
-        <Hyperlink NavigateUri="https://getsongbpm.com" RequestNavigate="OnLink" Foreground="{StaticResource TextDim}">GetSongBPM</Hyperlink>
+        <Run Text=" · " />
+        <Hyperlink NavigateUri="https://reccobeats.com" RequestNavigate="OnLink" Foreground="{StaticResource TextDim}">reccobeats.com</Hyperlink>
+        <Run Text=" · " />
+        <Hyperlink NavigateUri="https://getsongbpm.com" RequestNavigate="OnLink" Foreground="{StaticResource TextDim}">getsongbpm.com</Hyperlink>
       </TextBlock>
     </StackPanel>
   </Grid>

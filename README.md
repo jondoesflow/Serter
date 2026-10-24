@@ -35,8 +35,9 @@ TIDAL doesn't let third-party apps in, so suggestions come from free music servi
 
 | Service | Key needed? | Used for |
 | --- | --- | --- |
-| [Deezer API](https://developers.deezer.com/api) | No | Similar tracks ("artist radio", related artists) and genres |
-| [GetSongBPM](https://getsongbpm.com) | Free key | **BPM and key** of suggested tracks, plus popular songs at the same BPM |
+| [Deezer API](https://developers.deezer.com/api) | No | Similar tracks ("artist radio", related artists), genres and ISRC codes |
+| [ReccoBeats](https://reccobeats.com) | No | **BPM and key** of suggested tracks, matched exactly by ISRC |
+| [GetSongBPM](https://getsongbpm.com) | Free key (optional) | BPM/key for tracks ReccoBeats doesn't know, plus popular songs at the same BPM |
 | [Last.fm API](https://www.last.fm/api) | Free key (optional) | "Listeners also play" similar tracks and genre tags |
 | Your Serato history | – | Tracks you've played before that fit, with Serato's own BPM/key |
 
@@ -44,7 +45,12 @@ Each candidate is scored on **harmonic compatibility** (Camelot wheel: same key,
 major/minor, ±1, +2 energy boost…), **BPM** (within your ± range, half/double-time aware),
 **genre** overlap and how similar the services say it is. The best matches come first.
 
-BPM/key data provided by [GetSongBPM.com](https://getsongbpm.com).
+Works with **no API keys at all**. The optional keys just widen the net.
+
+The first lookup for a new track takes ~10 seconds (the list appears after ~4 and BPM/key fill in);
+after that it's cached and instant.
+
+BPM/key data provided by [ReccoBeats](https://reccobeats.com) and [GetSongBPM.com](https://getsongbpm.com).
 
 ## Install
 
@@ -54,16 +60,16 @@ BPM/key data provided by [GetSongBPM.com](https://getsongbpm.com).
    It's a single self-contained file, so there's no .NET install needed.
 2. Run it. Windows SmartScreen may warn because the app isn't code-signed: click
    **More info → Run anyway**.
-3. The settings window opens on first run. Paste your API keys (see below) and click **Save**.
+3. The settings window opens on first run. API keys are optional (see below), so you can just click **Save**.
 4. Start Serato and load a track.
 
-### Getting the free API keys
+### Optional free API keys
 
-**GetSongBPM** (needed for BPM and key of suggestions):
+**GetSongBPM** (fills BPM/key gaps for rarer tracks):
 1. Go to <https://getsongbpm.com/api> in your browser.
 2. GetSongBPM requires a public page linking back to them. This README has that link, so use this
-   repository's URL (`https://github.com/jondoesflow/serter`) as both the website and the backlink.
-   The repository must be **public** for this to work.
+   repository's URL (`https://github.com/jondoesflow/serter`) as both the website and the backlink
+   (no `ios-app://` prefix). The repository must be **public** for this to work.
 3. Enter your email, then activate the key from the email they send you.
 
 **Last.fm** (optional, improves suggestions):

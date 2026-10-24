@@ -18,11 +18,12 @@
     </Style>
   </Window.Resources>
   <StackPanel Margin="18">
-    <TextBlock Text="GetSongBPM API key (free – needed for BPM &amp; key of suggestions)" Style="{StaticResource Label}" Margin="0,0,0,4" />
+    <TextBlock Text="GetSongBPM API key (optional – fills in BPM &amp; key ReccoBeats doesn't know)" Style="{StaticResource Label}" Margin="0,0,0,4" />
     <TextBox x:Name="GetSongBpmKey" />
     <TextBlock Style="{StaticResource Help}">
-      Get one at <Hyperlink NavigateUri="https://getsongbpm.com/api" RequestNavigate="OnLink">getsongbpm.com/api</Hyperlink>.
-      They ask for a web page that links back to them – you can use this app's GitHub page (see README).
+      BPM and key already come from ReccoBeats with no key needed. A free GetSongBPM key from
+      <Hyperlink NavigateUri="https://getsongbpm.com/api" RequestNavigate="OnLink">getsongbpm.com/api</Hyperlink>
+      fills gaps for rarer tracks.
     </TextBlock>
 
     <TextBlock Text="Last.fm API key (optional – better 'similar track' suggestions + genres)" Style="{StaticResource Label}" />

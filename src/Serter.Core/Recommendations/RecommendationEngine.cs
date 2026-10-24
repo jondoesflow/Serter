@@ -24,24 +24,32 @@ public sealed record RecommendationOptions
     public bool HideKeyClashes { get; init; } = false;
     public bool HidePlayedThisSession { get; init; } = true;
 
-    /// <summary>Cap on BPM/key lookups per load, to stay well inside GetSongBPM's 3000/hour.</summary>
-    public int MaxLookups { get; init; } = 40;
+    /// <summary>Cap on BPM/key lookups per load, so a load stays quick and inside the free APIs' limits.</summary>
+    public int MaxLookups { get; init; } = 30;
 }
 
 /// <summary>
 /// Builds a list of tracks that would mix well with the seed: gathers similar tracks from Deezer,
-/// Last.fm, GetSongBPM and the DJ's own Serato history, fills in BPM/key/genre, then ranks them.
+/// Last.fm, GetSongBPM and the DJ's own Serato history, fills in BPM/key (ReccoBeats, GetSongBPM)
+/// and genre, then ranks them.
 /// </summary>
 public sealed class RecommendationEngine
 {
     private readonly DeezerClient _deezer;
+    private readonly ReccoBeatsClient _reccoBeats;
     private readonly GetSongBpmClient? _getSongBpm;
     private readonly LastFmClient? _lastFm;
     private readonly RecommendationOptions _options;
 
-    public RecommendationEngine(DeezerClient deezer, GetSongBpmClient? getSongBpm, LastFmClient? lastFm, RecommendationOptions options)
+    public RecommendationEngine(
+        DeezerClient deezer,
+        ReccoBeatsClient reccoBeats,
+        GetSongBpmClient? getSongBpm,
+        LastFmClient? lastFm,
+        RecommendationOptions options)
     {
         _deezer = deezer;
+        _reccoBeats = reccoBeats;
         _getSongBpm = getSongBpm;
         _lastFm = lastFm;
         _options = options;
@@ -52,16 +60,24 @@ public sealed class RecommendationEngine
         public required TrackInfo Track;
         public double Similarity;
         public required string Source;
+        public long DeezerId;
         public long DeezerAlbumId;
+        public string? Isrc;
+
+        public bool NeedsBpmOrKey => Track.Bpm is null || Track.Camelot is null;
     }
+
+    private delegate void AddCandidate(TrackInfo track, double similarity, string source, DeezerClient.DeezerTrack? deezer = null);
 
     /// <param name="sessionHistory">Tracks loaded this session (hidden if the option says so).</param>
     /// <param name="knownTracks">Tracks from the DJ's Serato history, which carry Serato's own BPM/key analysis.</param>
+    /// <param name="onPartial">Called with a first ranking before BPM/key lookups finish, so the list appears quickly.</param>
     public async Task<RecommendationResult> RecommendAsync(
         TrackInfo seed,
         IReadOnlyList<TrackInfo> sessionHistory,
         IReadOnlyList<TrackInfo> knownTracks,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<RecommendationResult>? onPartial = null)
     {
         var notes = new List<string>();
         var known = new Dictionary<string, TrackInfo>();
@@ -72,20 +88,32 @@ public sealed class RecommendationEngine
         var seedKey = seed.Camelot;
 
         var candidates = new ConcurrentDictionary<string, Candidate>();
-        void Add(TrackInfo track, double similarity, string source, long albumId = 0)
+        void Add(TrackInfo track, double similarity, string source, DeezerClient.DeezerTrack? deezer = null)
         {
             if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
                 return;
             candidates.AddOrUpdate(
                 track.MatchKey,
-                _ => new Candidate { Track = track, Similarity = similarity, Source = source, DeezerAlbumId = albumId },
+                _ => new Candidate
+                {
+                    Track = track,
+                    Similarity = similarity,
+                    Source = source,
+                    DeezerId = deezer?.Id ?? 0,
+                    DeezerAlbumId = deezer?.AlbumId ?? 0,
+                    Isrc = deezer?.Isrc,
+                },
                 (_, existing) =>
                 {
                     // Seen by more than one source: a good sign, nudge it up and keep the best data.
                     existing.Similarity = Math.Min(1, Math.Max(existing.Similarity, similarity) + 0.1);
                     existing.Track = Merge(existing.Track, track);
-                    if (existing.DeezerAlbumId == 0)
-                        existing.DeezerAlbumId = albumId;
+                    if (deezer is not null && existing.DeezerId == 0)
+                    {
+                        existing.DeezerId = deezer.Id;
+                        existing.DeezerAlbumId = deezer.AlbumId;
+                        existing.Isrc ??= deezer.Isrc;
+                    }
                     return existing;
                 });
         }
@@ -118,44 +146,80 @@ public sealed class RecommendationEngine
                 c.Track = Merge(fromHistory, c.Track);
         }
 
+        onPartial?.Invoke(new RecommendationResult(seed, Rank(seed, seedKey, candidates.Values), ["Looking up BPM and key…"]));
+
         var toLookUp = candidates.Values
-            .Where(c => c.Track.Bpm is null || c.Track.Camelot is null)
+            .Where(c => c.NeedsBpmOrKey)
             .OrderByDescending(c => c.Similarity)
             .Take(_options.MaxLookups)
             .ToList();
-        if (_getSongBpm is null && toLookUp.Count > 0)
-            notes.Add("Add a free GetSongBPM key in Settings to see BPM and key for suggested tracks.");
+        await LookUpBpmAndKeyAsync(toLookUp, ct);
+        // Genre lookups cost a request each, so only fill them in for tracks in the running.
+        var contenders = Rank(seed, seedKey, candidates.Values, _options.MaxResults + 10).Select(r => r.Track.MatchKey).ToHashSet();
+        await FillGenresAsync(candidates.Values.Where(c => c.Track.Genre is null && contenders.Contains(c.Track.MatchKey)).ToList(), ct);
 
-        await Parallel.ForEachAsync(toLookUp, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, async (c, token) =>
+        return new RecommendationResult(seed, Rank(seed, seedKey, candidates.Values), notes);
+    }
+
+    private List<Recommendation> Rank(TrackInfo seed, CamelotKey? seedKey, IEnumerable<Candidate> candidates, int? take = null) =>
+        candidates
+            .Select(c => Score(seed, seedKey, c))
+            .Where(r => !_options.HideKeyClashes || r.KeyLabel != "Key clash")
+            .OrderByDescending(r => r.Score)
+            .Take(take ?? _options.MaxResults)
+            .ToList();
+
+    /// <summary>
+    /// ReccoBeats first (matched exactly by ISRC, no key needed), then GetSongBPM by name for anything
+    /// still missing, then Deezer's own occasional BPM.
+    /// </summary>
+    private async Task LookUpBpmAndKeyAsync(IReadOnlyList<Candidate> candidates, CancellationToken ct)
+    {
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct };
+        double?[] deezerBpm = new double?[candidates.Count];
+
+        await Parallel.ForEachAsync(Enumerable.Range(0, candidates.Count), parallel, async (i, token) =>
         {
-            if (_getSongBpm is not null)
+            var c = candidates[i];
+            if (c.DeezerId == 0)
+            {
+                var found = await _deezer.FindTrackAsync(TrackText.PrimaryArtist(c.Track.Artist), TrackText.StripVersionInfo(c.Track.Title), token);
+                if (found is null || TrackText.MatchKey(found.Artist, found.Title) != c.Track.MatchKey)
+                    return; // Not confident it's the same recording.
+                c.DeezerId = found.Id;
+                c.DeezerAlbumId = found.AlbumId;
+                c.Isrc ??= found.Isrc;
+            }
+            if (c.Isrc is null)
+            {
+                var details = await _deezer.TrackDetailsAsync(c.DeezerId, token);
+                c.Isrc = details?.Isrc;
+                deezerBpm[i] = details?.Bpm;
+            }
+        });
+
+        var features = await _reccoBeats.AudioFeaturesAsync(candidates.Select(c => c.Isrc).OfType<string>(), ct);
+        foreach (var c in candidates)
+        {
+            if (c.Isrc is not null && features.TryGetValue(c.Isrc.ToUpperInvariant(), out var info))
+                c.Track = Merge(c.Track, info);
+        }
+
+        if (_getSongBpm is not null)
+        {
+            await Parallel.ForEachAsync(candidates.Where(c => c.NeedsBpmOrKey), parallel, async (c, token) =>
             {
                 var info = await _getSongBpm.LookupAsync(c.Track.Artist, c.Track.Title, token);
                 if (info is not null)
                     c.Track = Merge(c.Track, info);
-            }
-            if (c.Track.Bpm is null && c.Source.StartsWith("Deezer", StringComparison.Ordinal))
-            {
-                var dz = await _deezer.FindTrackAsync(c.Track.Artist, c.Track.Title, token);
-                if (dz is not null)
-                {
-                    var bpm = dz.Bpm ?? await _deezer.TrackBpmAsync(dz.Id, token);
-                    if (bpm is not null)
-                        c.Track = c.Track with { Bpm = bpm };
-                }
-            }
-        });
+            });
+        }
 
-        await FillGenresAsync(candidates.Values.Where(c => c.Track.Genre is null).ToList(), ct);
-
-        var ranked = candidates.Values
-            .Select(c => Score(seed, seedKey, c))
-            .Where(r => !_options.HideKeyClashes || r.KeyLabel != "Key clash")
-            .OrderByDescending(r => r.Score)
-            .Take(_options.MaxResults)
-            .ToList();
-
-        return new RecommendationResult(seed, ranked, notes);
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            if (candidates[i].Track.Bpm is null && deezerBpm[i] is { } bpm)
+                candidates[i].Track = candidates[i].Track with { Bpm = bpm };
+        }
     }
 
     private Recommendation Score(TrackInfo seed, CamelotKey? seedKey, Candidate c)
@@ -170,6 +234,22 @@ public sealed class RecommendationEngine
     /// <summary>Serato usually knows BPM/key (it analyses streamed tracks too) – only look up what's missing.</summary>
     private async Task<TrackInfo> CompleteSeedAsync(TrackInfo seed, CancellationToken ct)
     {
+        var needsBpmOrKey = seed.Bpm is null || seed.Camelot is null;
+        if (needsBpmOrKey || seed.Genre is null)
+        {
+            var dz = await _deezer.FindTrackAsync(TrackText.PrimaryArtist(seed.Artist), TrackText.StripVersionInfo(seed.Title), ct);
+            if (dz is not null && TrackText.MatchKey(dz.Artist, dz.Title) == seed.MatchKey)
+            {
+                if (needsBpmOrKey && dz.Isrc is not null)
+                {
+                    var features = await _reccoBeats.AudioFeaturesAsync([dz.Isrc], ct);
+                    if (features.TryGetValue(dz.Isrc.ToUpperInvariant(), out var info))
+                        seed = Merge(seed, info);
+                }
+                if (seed.Genre is null)
+                    seed = seed with { Genre = await _deezer.AlbumGenreAsync(dz.AlbumId, ct) };
+            }
+        }
         if ((seed.Bpm is null || seed.Camelot is null || seed.Genre is null) && _getSongBpm is not null)
         {
             var info = await _getSongBpm.LookupAsync(seed.Artist, seed.Title, ct);
@@ -178,16 +258,10 @@ public sealed class RecommendationEngine
         }
         if (seed.Genre is null && _lastFm is not null)
             seed = seed with { Genre = await _lastFm.ArtistGenreAsync(TrackText.PrimaryArtist(seed.Artist), ct) };
-        if (seed.Genre is null)
-        {
-            var dz = await _deezer.FindTrackAsync(TrackText.PrimaryArtist(seed.Artist), TrackText.StripVersionInfo(seed.Title), ct);
-            if (dz is not null)
-                seed = seed with { Genre = await _deezer.AlbumGenreAsync(dz.AlbumId, ct) };
-        }
         return seed;
     }
 
-    private async Task GatherFromDeezerAsync(TrackInfo seed, Action<TrackInfo, double, string, long> add, CancellationToken ct)
+    private async Task GatherFromDeezerAsync(TrackInfo seed, AddCandidate add, CancellationToken ct)
     {
         var artist = TrackText.PrimaryArtist(seed.Artist);
         var track = await _deezer.FindTrackAsync(artist, TrackText.StripVersionInfo(seed.Title), ct);
@@ -197,26 +271,26 @@ public sealed class RecommendationEngine
 
         var radio = await _deezer.ArtistRadioAsync(artistId.Value, ct);
         for (var i = 0; i < radio.Count; i++)
-            add(radio[i].ToTrackInfo(), 0.65 - i * 0.005, "Deezer radio", radio[i].AlbumId);
+            add(radio[i].ToTrackInfo(), 0.65 - i * 0.005, "Deezer radio", radio[i]);
 
         var related = await _deezer.RelatedArtistsAsync(artistId.Value, 6, ct);
         var tops = await Task.WhenAll(related.Select(id => _deezer.TopTracksAsync(id, 3, ct)));
         foreach (var top in tops)
             foreach (var t in top)
-                add(t.ToTrackInfo(), 0.5, "Deezer related artist", t.AlbumId);
+                add(t.ToTrackInfo(), 0.5, "Deezer related artist", t);
     }
 
-    private async Task GatherFromLastFmAsync(TrackInfo seed, Action<TrackInfo, double, string, long> add, CancellationToken ct)
+    private async Task GatherFromLastFmAsync(TrackInfo seed, AddCandidate add, CancellationToken ct)
     {
         if (_lastFm is null)
             return;
         var similar = await _lastFm.SimilarTracksAsync(TrackText.PrimaryArtist(seed.Artist), TrackText.StripVersionInfo(seed.Title), 40, ct);
         foreach (var s in similar)
-            add(new TrackInfo { Artist = s.Artist, Title = s.Title }, 0.55 + s.Match * 0.45, "Last.fm similar", 0);
+            add(new TrackInfo { Artist = s.Artist, Title = s.Title }, 0.55 + s.Match * 0.45, "Last.fm similar");
     }
 
     /// <summary>Popular songs at the same BPM – only kept when they share the seed's genre, otherwise it's noise.</summary>
-    private async Task GatherFromTempoAsync(TrackInfo seed, Action<TrackInfo, double, string, long> add, CancellationToken ct)
+    private async Task GatherFromTempoAsync(TrackInfo seed, AddCandidate add, CancellationToken ct)
     {
         if (_getSongBpm is null || seed.Bpm is not > 0 || string.IsNullOrWhiteSpace(seed.Genre))
             return;
@@ -224,12 +298,12 @@ public sealed class RecommendationEngine
         foreach (var t in await _getSongBpm.SongsAtTempoAsync(bpm, ct))
         {
             if (MixScoring.CompareGenre(seed.Genre, t.Genre) >= 1)
-                add(t, 0.3, "Same BPM (GetSongBPM)", 0);
+                add(t, 0.3, "Same BPM (GetSongBPM)");
         }
     }
 
     /// <summary>Tracks the DJ has played before that suit this one – these are already in their Serato/TIDAL world.</summary>
-    private void GatherFromHistory(TrackInfo seed, IReadOnlyList<TrackInfo> knownTracks, Action<TrackInfo, double, string, long> add)
+    private void GatherFromHistory(TrackInfo seed, IReadOnlyList<TrackInfo> knownTracks, AddCandidate add)
     {
         var seedKey = seed.Camelot;
         if (seedKey is null || seed.Bpm is not > 0)
@@ -240,7 +314,7 @@ public sealed class RecommendationEngine
             var bpm = MixScoring.CompareBpm(seed.Bpm, t.Bpm, _options.BpmTolerancePercent);
             var genre = MixScoring.CompareGenre(seed.Genre, t.Genre);
             if (key.Score >= 0.9 && bpm.Score >= 0.6 && genre > 0)
-                add(t, 0.45, "Your Serato history", 0);
+                add(t, 0.45, "Your Serato history");
         }
     }
 

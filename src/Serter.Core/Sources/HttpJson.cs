@@ -13,6 +13,7 @@ public sealed class HttpJson
     private readonly TimeSpan _cacheLifetime;
     private readonly ConcurrentDictionary<string, JsonNode?> _memory = new();
     private readonly SemaphoreSlim _throttle;
+    private readonly Dictionary<string, (TimeSpan Interval, DateTime Next)> _pacing = new(StringComparer.OrdinalIgnoreCase);
 
     public HttpJson(HttpClient http, string? cacheDirectory, TimeSpan cacheLifetime, int maxConcurrentRequests = 4)
     {
@@ -22,6 +23,30 @@ public sealed class HttpJson
         _throttle = new SemaphoreSlim(maxConcurrentRequests);
         if (_cacheDirectory is not null)
             Directory.CreateDirectory(_cacheDirectory);
+    }
+
+    /// <summary>Spaces out network requests to <paramref name="host"/> (cache hits are not delayed).</summary>
+    public void Pace(string host, TimeSpan minimumInterval)
+    {
+        lock (_pacing)
+            _pacing[host] = (minimumInterval, DateTime.MinValue);
+    }
+
+    private async Task WaitForTurnAsync(string url, CancellationToken cancellationToken)
+    {
+        var host = new Uri(url).Host;
+        TimeSpan wait;
+        lock (_pacing)
+        {
+            if (!_pacing.TryGetValue(host, out var pace))
+                return;
+            var now = DateTime.UtcNow;
+            var slot = pace.Next > now ? pace.Next : now;
+            _pacing[host] = (pace.Interval, slot + pace.Interval);
+            wait = slot - now;
+        }
+        if (wait > TimeSpan.Zero)
+            await Task.Delay(wait, cancellationToken);
     }
 
     /// <param name="cacheKey">Stable key without secrets (API keys are left out of cache file names).</param>
@@ -45,6 +70,7 @@ public sealed class HttpJson
             }
         }
 
+        await WaitForTurnAsync(url, cancellationToken);
         await _throttle.WaitAsync(cancellationToken);
         try
         {
@@ -56,6 +82,9 @@ public sealed class HttpJson
 
             var text = await response.Content.ReadAsStringAsync(cancellationToken);
             var node = JsonNode.Parse(text);
+            // Some APIs (Deezer) report quota/limit errors as a 200 with an "error" object: don't cache those.
+            if (node is JsonObject obj && obj.ContainsKey("error"))
+                return null;
             return Remember(cacheKey, file, node);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !cancellationToken.IsCancellationRequested)

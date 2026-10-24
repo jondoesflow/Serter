@@ -97,7 +97,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public string SourcesSummary =>
-        "Deezer" +
+        "Deezer · ReccoBeats" +
         (string.IsNullOrWhiteSpace(Settings.GetSongBpmApiKey) ? "" : " · GetSongBPM") +
         (string.IsNullOrWhiteSpace(Settings.LastFmApiKey) ? "" : " · Last.fm");
 
@@ -109,7 +109,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var cache = new HttpJson(Http, System.IO.Path.Combine(AppSettings.Folder, "cache"), TimeSpan.FromDays(30));
         var gsb = string.IsNullOrWhiteSpace(Settings.GetSongBpmApiKey) ? null : new GetSongBpmClient(cache, Settings.GetSongBpmApiKey.Trim());
         var lastFm = string.IsNullOrWhiteSpace(Settings.LastFmApiKey) ? null : new LastFmClient(cache, Settings.LastFmApiKey.Trim());
-        _engine = new RecommendationEngine(new DeezerClient(cache), gsb, lastFm, new RecommendationOptions
+        cache.Pace("api.deezer.com", TimeSpan.FromMilliseconds(100)); // Deezer allows 50 requests per 5 seconds.
+        _engine = new RecommendationEngine(new DeezerClient(cache), new ReccoBeatsClient(cache), gsb, lastFm, new RecommendationOptions
         {
             MaxResults = Math.Clamp(Settings.MaxResults, 5, 50),
             BpmTolerancePercent = Math.Clamp(Settings.BpmTolerancePercent, 1, 20),
@@ -166,17 +167,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             var history = _monitor.Latest.SessionHistory;
             var known = await Task.Run(KnownTracks, ct);
-            var result = await Task.Run(() => _engine.RecommendAsync(track, history, known, ct), ct);
-            if (ct.IsCancellationRequested)
-                return;
+            void Show(RecommendationResult result)
+            {
+                if (ct.IsCancellationRequested)
+                    return;
+                deck.Loaded = new TrackDisplay(result.Seed);
+                deck.Suggestions.Clear();
+                var rank = 1;
+                foreach (var r in result.Tracks)
+                    deck.Suggestions.Add(new RecommendationViewModel(r, rank++));
+                deck.Message = result.Notes.Count > 0
+                    ? string.Join(" ", result.Notes)
+                    : $"{result.Tracks.Count} suggestions · best matches first";
+            }
 
-            deck.Loaded = new TrackDisplay(result.Seed);
-            var rank = 1;
-            foreach (var r in result.Tracks)
-                deck.Suggestions.Add(new RecommendationViewModel(r, rank++));
-            deck.Message = result.Notes.Count > 0
-                ? string.Join(" ", result.Notes)
-                : $"{result.Tracks.Count} suggestions · best matches first";
+            var final = await Task.Run(() => _engine.RecommendAsync(track, history, known, ct, partial => OnUi(() => Show(partial))), ct);
+            Show(final);
         }
         catch (OperationCanceledException)
         {

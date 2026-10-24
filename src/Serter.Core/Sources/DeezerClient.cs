@@ -5,7 +5,7 @@ namespace Serter.Core.Sources;
 
 /// <summary>
 /// Deezer's public API (free, no key). Used to find tracks in the same vein as the loaded one
-/// (artist "radio" mixes and related artists' top tracks) and to look up genres.
+/// (artist "radio" mixes and related artists' top tracks), genres, and ISRC codes for BPM/key lookups.
 /// </summary>
 public sealed class DeezerClient
 {
@@ -17,7 +17,9 @@ public sealed class DeezerClient
         _json = json;
     }
 
-    public sealed record DeezerTrack(long Id, string Artist, long ArtistId, string Title, long AlbumId, double? Bpm);
+    public sealed record DeezerTrack(long Id, string Artist, long ArtistId, string Title, long AlbumId, double? Bpm, string? Isrc);
+
+    public sealed record TrackDetails(string? Isrc, double? Bpm);
 
     public async Task<DeezerTrack?> FindTrackAsync(string artist, string title, CancellationToken ct)
     {
@@ -68,12 +70,14 @@ public sealed class DeezerClient
         return names is { Count: > 0 } ? string.Join(", ", names) : null;
     }
 
-    /// <summary>Deezer only sometimes knows BPM, and only on the full track object.</summary>
-    public async Task<double?> TrackBpmAsync(long trackId, CancellationToken ct)
+    /// <summary>The full track object: its ISRC (for BPM/key lookups) and, occasionally, a BPM.</summary>
+    public async Task<TrackDetails?> TrackDetailsAsync(long trackId, CancellationToken ct)
     {
         var node = await _json.GetAsync($"{Base}/track/{trackId}", $"dz:track:{trackId}", ct);
+        if (node is null)
+            return null;
         var bpm = node.Num("bpm");
-        return bpm is > 0 ? bpm : null;
+        return new TrackDetails(node.Str("isrc"), bpm is > 0 ? bpm : null);
     }
 
     private static DeezerTrack? ToTrack(JsonNode node)
@@ -84,7 +88,7 @@ public sealed class DeezerClient
         if (id is null || title is null || artist is null)
             return null;
         var bpm = node.Num("bpm");
-        return new DeezerTrack((long)id, artist, (long)(node["artist"].Num("id") ?? 0), title, (long)(node["album"].Num("id") ?? 0), bpm is > 0 ? bpm : null);
+        return new DeezerTrack((long)id, artist, (long)(node["artist"].Num("id") ?? 0), title, (long)(node["album"].Num("id") ?? 0), bpm is > 0 ? bpm : null, node.Str("isrc"));
     }
 }
 
